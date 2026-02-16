@@ -30,7 +30,7 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
     	# get_text("blocks")で段落（ブロック）ごとにテキストを取得
     	# sort=True を設定すると上から下の順序で取得
         blocks_ja = doc_ja[page_num].get_text("blocks", sort=True)
-        list_ja.append("\n"+"\n"+"\n"+"P"+str(page_num))
+        list_ja.append("P"+str(page_num)+"\n"+"\n"+"\n")
             
         for block_ja in blocks_ja:
         # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
@@ -44,7 +44,7 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
     	# get_text("blocks")で段落（ブロック）ごとにテキストを取得
     	# sort=True を設定すると上から下の順序で取得
         blocks_en = doc_en[page_num].get_text("blocks", sort=True)
-        list_en.append("\n"+"\n"+"\n"+"P"+str(page_num))
+        list_en.append("P"+str(page_num)+"\n"+"\n"+"\n")
             
         for block_en in blocks_en:
         # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
@@ -119,17 +119,17 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         ws.row_dimensions[row_idx].height = max(15, max_lines * line_height)
     
     # 交互の色の定義
-    fill_even = PatternFill(patternType='solid', fgColor='CEE6C1') # 薄い緑
-    fill_odd = PatternFill(patternType='solid', fgColor='FFFFFF')  # 白
+    #fill_even = PatternFill(patternType='solid', fgColor='CEE6C1') # 薄い緑
+    #fill_odd = PatternFill(patternType='solid', fgColor='FFFFFF')  # 白
 
     # 各行に色を適用
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=2):
-        if row[0].row % 2 == 0:
-            for cell in row:
-                cell.fill = fill_even
-        else:
-            for cell in row:
-                cell.fill = fill_odd
+    #for row in ws.iter_rows(min_row=2, max_row=ws.max_row, min_col=1, max_col=2):
+    #    if row[0].row % 2 == 0:
+    #        for cell in row:
+    #            cell.fill = fill_even
+    #    else:
+    #        for cell in row:
+    #            cell.fill = fill_odd
 
     wb.save(output_xlsx)
 
