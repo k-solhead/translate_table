@@ -16,15 +16,6 @@ from openpyxl.styles import Alignment
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 
-def illegal_char_remover(data):
-    ILLEGAL_CHARACTERS_RE = re.compile(
-        r'[\000-\010]|[\013-\014]|[\016-\037]|[\x00-\x1f\x7f-\x9f]|[\uffff]')
-    """Remove ILLEGAL CHARACTER."""
-    if isinstance(data, str):
-        return ILLEGAL_CHARACTERS_RE.sub("", data)
-    else:
-        return data
-
 def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
 
     # PDFファイルを開く
@@ -46,7 +37,6 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         # block[4] にテキストが含まれる
             if block_ja[6] == 0:  # block_type == 0 はテキストブロック
                 text_ja = block_ja[4].strip()
-				text_ja = illegal_char_remover(text_ja)
                 if text_ja:  # 空白でない場合のみ出力
                     list_ja.append("\n")
                     list_ja.append(text_ja)
@@ -60,9 +50,7 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
         # block[4] にテキストが含まれる
             if block_en[6] == 0:  # block_type == 0 はテキストブロック
-                text_en = block_en[4].strip)
-　　　　　　　　　　　text_en = illegal_char_remover(text_en)
-
+                text_en = block_en[4].strip()
                 if text_en:  # 空白でない場合のみ出力
                     list_en.append("\n")
                     list_en.append(text_en)
@@ -74,7 +62,8 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         # 全ページ分を連結する際はインデックスを振り直す
         df = pd.concat([df, df_m], ignore_index=True)
         
-    df.to_excel(output_xlsx, index=False)
+    #df.to_excel(output_xlsx, index=False)
+    df.to_excel(output_xlsx, engine='xlsxwriter', index=False)
     
     wb = openpyxl.load_workbook(output_xlsx)
     ws = wb.active
@@ -151,38 +140,46 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
 st.title("対訳ファイル作成")
 st.write("和文と英文の統合報告書PDFから対訳ファイルのエクセルを作成します")
 
-uploaded_file = st.file_uploader("和文（PDFファイル）をアップロード", type="pdf")
-if uploaded_file is not None:
-    file_name = os.path.splitext(uploaded_file.name)[0]  # アップロードされたファイル名を取得
+# セッション状態の初期化
+if 'processing_done' not in st.session_state:
+    st.session_state.processing_done = False
+if 'output_xlsx' not in st.session_state:
+    st.session_state.output_xlsx = None
+
+uploaded_file_ja = st.file_uploader("和文（PDFファイル）をアップロード", type="pdf", key="file_ja")
+if uploaded_file_ja is not None:
+    file_name = os.path.splitext(uploaded_file_ja.name)[0]  # アップロードされたファイル名を取得
     st.success("和文ファイルがアップロードされました。")
-    doc_ja = pymupdf.open(stream=uploaded_file.read(), filetype="pdf")
+    doc_ja = pymupdf.open(stream=uploaded_file_ja.read(), filetype="pdf")
 
-uploaded_file = st.file_uploader("英文（PDFファイル）をアップロード", type="pdf")
-if uploaded_file is not None:
-    # file_name = os.path.splitext(uploaded_file.name)[0]  # アップロードされたファイル名を取得
+uploaded_file_en = st.file_uploader("英文（PDFファイル）をアップロード", type="pdf", key="file_en")
+if uploaded_file_en is not None:
     st.success("英文ファイルがアップロードされました。")
-    doc_en = pymupdf.open(stream=uploaded_file.read(), filetype="pdf")
+    doc_en = pymupdf.open(stream=uploaded_file_en.read(), filetype="pdf")
     
-    try:
-        output_xlsx = f"{file_name}_output.xlsx"  # アップロードされたファイル名をベースに出力ファイル名を作成
-        extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx)
-        st.success(f"対訳ファイルが作成されました: {output_xlsx}")
+    # 初回実行時のみ処理を実行
+    if not st.session_state.processing_done:
+        try:
+            output_xlsx = f"{file_name}_output.xlsx"  # アップロードされたファイル名をベースに出力ファイル名を作成
+            extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx)
+            st.success(f"対訳ファイルが作成されました: {output_xlsx}")
+            st.session_state.processing_done = True
+            st.session_state.output_xlsx = output_xlsx
 
+        except Exception as e:
+            st.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
+    
+    # 処理済みの場合はダウンロードボタンを表示
+    if st.session_state.processing_done:
         st.success("ダウンロードボタンを押してください")        
-        with open(output_xlsx, "rb") as file:
+        with open(st.session_state.output_xlsx, "rb") as file:
             xlsx_data = file.read()
             # ダウンロードボタンを作成
             st.download_button(
                 label="Excelをダウンロード",
                 data=xlsx_data,
                 file_name=file_name+"_output.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                on_click=None # 再実行を無視する設定（コールバックは不要）
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        print(f"ダウンロードしました。")
-
-        
-    except Exception as e:
-        st.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
 else:
     st.info("ファイルをアップロードしてください。")
