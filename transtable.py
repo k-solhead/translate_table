@@ -16,6 +16,15 @@ from openpyxl.styles import Alignment
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 
+def illegal_char_remover(data):
+    ILLEGAL_CHARACTERS_RE = re.compile(
+        r'[\000-\010]|[\013-\014]|[\016-\037]|[\x00-\x1f\x7f-\x9f]|[\uffff]')
+    """Remove ILLEGAL CHARACTER."""
+    if isinstance(data, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", data)
+    else:
+        return data
+
 def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
 
     # PDFファイルを開く
@@ -37,6 +46,7 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         # block[4] にテキストが含まれる
             if block_ja[6] == 0:  # block_type == 0 はテキストブロック
                 text_ja = block_ja[4].strip()
+				text_ja = illegal_char_remover(text_ja)
                 if text_ja:  # 空白でない場合のみ出力
                     list_ja.append("\n")
                     list_ja.append(text_ja)
@@ -50,7 +60,9 @@ def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
         # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
         # block[4] にテキストが含まれる
             if block_en[6] == 0:  # block_type == 0 はテキストブロック
-                text_en = block_en[4].strip()
+                text_en = block_en[4].strip)
+　　　　　　　　　　　text_en = illegal_char_remover(text_en)
+
                 if text_en:  # 空白でない場合のみ出力
                     list_en.append("\n")
                     list_en.append(text_en)
