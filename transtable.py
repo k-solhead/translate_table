@@ -1,59 +1,148 @@
 # 対訳ファイル作成アプリ
 # 和文と英文の統合報告書PDFから対訳ファイルのエクセルを作成します
-# 2024-06-17
+# 2026-02-26
 # openpyxlライブラリのインストールが必要
 # 使い方
 # 1. 和文PDFをアップロード
 # 2. 英文PDFをアップロード
 # 3. 対訳ファイルが作成されるので、ダウンロードボタンを押して保存してください
 
-import pymupdf  # PyMuPDFのライブラリ
+import fitz
 import pandas as pd
 import streamlit as st
 import os
+import re
 import openpyxl
 from openpyxl.styles import Alignment
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
+from io import BytesIO
+
+def split_spread_pdf(input_pdf):
+    """見開きPDFをメモリ上で分割処理し、分割済みPDFを返す"""
+    # BytesIO または UploadedFile オブジェクトを処理
+    if hasattr(input_pdf, 'read'):
+        input_bytes = BytesIO(input_pdf.read())
+    else:
+        with open(input_pdf, 'rb') as f:
+            input_bytes = BytesIO(f.read())
+    
+    doc = fitz.open(stream=input_bytes.getvalue(), filetype="pdf")
+    new_doc = fitz.open()
+
+    for page in doc:
+        rect = page.rect
+        width = rect.width
+        height = rect.height
+
+        # 左半分
+        left_page = new_doc.new_page(width=width/2, height=height)
+        left_page.show_pdf_page(left_page.rect, doc, page.number, 
+                                 clip=fitz.Rect(0, 0, width/2, height))
+
+        # 右半分
+        right_page = new_doc.new_page(width=width/2, height=height)
+        right_page.show_pdf_page(right_page.rect, doc, page.number, 
+                                  clip=fitz.Rect(width/2, 0, width, height))
+
+    doc.close()
+    
+    # メモリ上のBytesIOに保存
+    output_bytes = BytesIO()
+    new_doc.save(output_bytes)
+    new_doc.close()
+    
+    output_bytes.seek(0)
+    return output_bytes
+
+
+def merge_paragraphs(blocks, threshold=5):
+    """
+    隣接するブロックを結合して段落を復元する
+    threshold: Y座標の差がこの値以下のブロックは同じ段落として結合する
+    """
+    if not blocks:
+        return []
+    
+    merged = []
+    current_paragraph = {
+        'text': blocks[0][4].strip(),
+        'y0': blocks[0][1],
+        'y1': blocks[0][3]
+    }
+    
+    for i in range(1, len(blocks)):
+        block = blocks[i]
+        text = block[4].strip()
+        y0 = block[1]
+        y1 = block[3]
+        
+        # 前のブロックからの距離をチェック
+        # 1. Y座標が近い（同じ行付近）
+        # 2. 前のテキストが句点で終わっていない
+        # 3. 数字で始まっていない
+        prev_text = current_paragraph['text']
+        
+        if (y0 - current_paragraph['y1'] < threshold and 
+            text and 
+            not any(prev_text.endswith(mark) for mark in ['。', '！', '？']) and
+            not re.match(r'^[0-9０-９]', text)):
+            # 同じ段落として結合
+            current_paragraph['text'] += text
+            current_paragraph['y1'] = y1
+        else:
+            # 新しい段落として記録
+            if current_paragraph['text']:
+                merged.append(current_paragraph['text'])
+            current_paragraph = {
+                'text': text,
+                'y0': y0,
+                'y1': y1
+            }
+    
+    # 最後のパラグラフを追加
+    if current_paragraph['text']:
+        merged.append(current_paragraph['text'])
+    
+    return merged
+
 
 def extract_paragraphs_to_file(doc_ja, doc_en, output_xlsx):
-
-    # PDFファイルを開く
-    # doc_ja = pymupdf.open(pdf_path_ja)
-    # doc_en = pymupdf.open(pdf_path_en)
 		
     df = pd.DataFrame()
 
-	# ページごとにループ
-    for page_num, page in enumerate(doc_ja):
-        list_ja, list_en = [], []         
-    	# get_text("blocks")で段落（ブロック）ごとにテキストを取得
-    	# sort=True を設定すると上から下の順序で取得
-        blocks_ja = doc_ja[page_num].get_text("blocks", sort=True)
-        list_ja.append("P"+str(page_num)+"\n"+"\n"+"\n")
-            
-        for block_ja in blocks_ja:
-        # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
-        # block[4] にテキストが含まれる
-            if block_ja[6] == 0:  # block_type == 0 はテキストブロック
-                text_ja = block_ja[4].strip()
-                if text_ja:  # 空白でない場合のみ出力
-                    list_ja.append("\n")
-                    list_ja.append(text_ja)
+	# 総ページ数を取得
+    total_pages = doc_ja.page_count
+    # ページごとにループ
+    for page_index in range(total_pages):
+        list_ja, list_en = [], []
+        page_ja = doc_ja[page_index]
+        #blocks_ja = page_ja.get_text("blocks", sort=True)
+        blocks_ja = page_ja.get_text("blocks")
+        merged_ja = merge_paragraphs(blocks_ja)
+        list_ja.append("P"+str(page_index)+"\n"+"\n"+"\n")
+        #pattern_count = len(re.findall(r'\b\w+,\s*\d+', paras_ja))
+        #if pattern_count > threshold:
+        #    continue
+        for para_ja in merged_ja:
+            para_ja = para_ja.strip()
+            if para_ja and not re.match(r'^\d+\w*[\s\W]+\d+$', para_ja):
+                list_ja.append("\n")
+                list_ja.append(para_ja.strip()) 
 
-    	# get_text("blocks")で段落（ブロック）ごとにテキストを取得
-    	# sort=True を設定すると上から下の順序で取得
-        blocks_en = doc_en[page_num].get_text("blocks", sort=True)
-        list_en.append("P"+str(page_num)+"\n"+"\n"+"\n")
-            
+        page_en = doc_en[page_index]
+        #blocks_en = page_en.get_text("blocks", sort=True)
+        blocks_en = page_en.get_text("blocks")
+        list_en.append("P"+str(page_index)+"\n"+"\n"+"\n")
+        #pattern_count = len(re.findall(r'\b\w+,\s*\d+', paras_en))
+        #if pattern_count > threshold:
+        #    continue
         for block_en in blocks_en:
-        # blockは (x0, y0, x1, y1, text, block_no, block_type) のタプル
-        # block[4] にテキストが含まれる
-            if block_en[6] == 0:  # block_type == 0 はテキストブロック
-                text_en = block_en[4].strip()
-                if text_en:  # 空白でない場合のみ出力
-                    list_en.append("\n")
-                    list_en.append(text_en)
+            para_en = block_en[4].strip()
+            if para_en and not re.match(r'^\d+\w*[\s\W]+\d+$', para_en):
+                list_en.append("\n")
+                list_en.append(para_en.strip()) 
+
         # 各リストをそれぞれ一意のカラム名でDataFrame化
         df_ja = pd.DataFrame({'ja': list_ja})
         df_en = pd.DataFrame({'en': list_en})
@@ -146,16 +235,28 @@ if 'processing_done' not in st.session_state:
 if 'output_xlsx' not in st.session_state:
     st.session_state.output_xlsx = None
 
+spread = st.checkbox("PDFが見開きの場合、チェックしてください", value=True)
+
 uploaded_file_ja = st.file_uploader("和文（PDFファイル）をアップロード", type="pdf", key="file_ja")
+doc_ja = None
 if uploaded_file_ja is not None:
     file_name = os.path.splitext(uploaded_file_ja.name)[0]  # アップロードされたファイル名を取得
+    if spread:
+        pdf_bytes_ja = split_spread_pdf(uploaded_file_ja)
+        doc_ja = fitz.open(stream=pdf_bytes_ja.getvalue(), filetype="pdf")
+    else:
+        doc_ja = fitz.open(stream=uploaded_file_ja.read(), filetype="pdf")
     st.success("和文ファイルがアップロードされました。")
-    doc_ja = pymupdf.open(stream=uploaded_file_ja.read(), filetype="pdf")
 
 uploaded_file_en = st.file_uploader("英文（PDFファイル）をアップロード", type="pdf", key="file_en")
+doc_en = None
 if uploaded_file_en is not None:
+    if spread:
+        pdf_bytes_en = split_spread_pdf(uploaded_file_en)
+        doc_en = fitz.open(stream=pdf_bytes_en.getvalue(), filetype="pdf")
+    else:
+        doc_en = fitz.open(stream=uploaded_file_en.read(), filetype="pdf")
     st.success("英文ファイルがアップロードされました。")
-    doc_en = pymupdf.open(stream=uploaded_file_en.read(), filetype="pdf")
     
     # 初回実行時のみ処理を実行
     if not st.session_state.processing_done:
@@ -168,6 +269,13 @@ if uploaded_file_en is not None:
 
         except Exception as e:
             st.error(f"ファイルの読み込み中にエラーが発生しました: {e}")
+        
+        finally:
+            # ドキュメントを閉じる
+            if doc_ja:
+                doc_ja.close()
+            if doc_en:
+                doc_en.close()
     
     # 処理済みの場合はダウンロードボタンを表示
     if st.session_state.processing_done:
